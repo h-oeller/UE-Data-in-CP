@@ -1,4 +1,4 @@
-# Data Labs
+# Data Labs (October 2026)
 
 This repository contains the files and data used in the four Data Labs of the course **„Ü Methoden der Vergleichenden Regierungslehre: Daten in der vergleichenden Politikwissenschaft: Konzepte, Messungen und Forschungsdesigns“**.
 
