@@ -1,4 +1,4 @@
-# UE-Data-in-CP
+# Data Labs
 
 This repository contains the files and data used in the four Data Labs of the course **„Ü Methoden der Vergleichenden Regierungslehre: Daten in der vergleichenden Politikwissenschaft: Konzepte, Messungen und Forschungsdesigns“**.
 
