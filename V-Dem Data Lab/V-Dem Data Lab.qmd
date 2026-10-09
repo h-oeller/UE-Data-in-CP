@@ -1,0 +1,290 @@
+---
+title: "V-Dem Data Lab"
+subtitle: "Exploring V-Dem and V-Party in R"
+author: "[Your Names]"
+date: today
+format:
+  html:
+    toc: true
+    code-copy: true
+    embed-resources: true
+  typst: default
+execute:
+  warning: false
+  message: false
+---
+
+## Getting started
+
+This file is a toolbox for your individual exploration. Run the examples,
+then change the countries, years or indicators to follow your own interests.
+The aim is to understand a measure, discover a pattern and develop a research
+question. You do not need to work through every example.
+
+For our ~45-minute session, spend about 35 minutes exploring and keep the final
+10 minutes for discussion. Choose either the V-Dem or the V-Party example.
+
+In RStudio, run a code chunk using its green arrow. In Positron, use the >Run Cell
+button above each code cell. **Render** in RStudio and **Preview** in Positron produces a 
+document from the whole file. Write your observations in the spaces below.
+
+## Preparation
+
+### Install packages once
+
+Run this chunk manually in the beginning of the session. It is excluded from rendering
+(`eval: false`). Installation requires an internet connection and may take
+a few moments. See the [official package repository](https://github.com/vdeminstitute/vdemdata)
+for installation guidance.
+
+```{r}
+#| label: installation
+#| eval: false
+
+install.packages(c("tidyverse", "remotes"))
+remotes::install_github("vdeminstitute/vdemdata")
+```
+
+### Load packages and datasets
+
+```{r}
+#| label: setup
+if (!require(pacman)) install.packages("pacman")
+p_load(tidyverse, vdemdata)
+
+vdem_data <- vdemdata::vdem
+vparty_data <- vdemdata::vparty
+codebook <- vdemdata::codebook #vdem codebook only, vparty codebook available: 
+
+# Record the installed package version.
+packageVersion("vdemdata")
+```
+
+V-Dem here uses **country-year** observations. V-Party uses
+**country-party-date** observations: do not assume that each party is observed
+every year. Check the coverage of your chosen sample before comparing it.
+The datasets have different time coverage and release schedules.
+
+## 1. Inspect the data and find a measure
+
+### Basic tools
+
+```{r}
+#| label: inspect-data
+# Number of rows and columns
+dim(vdem_data)
+dim(vparty_data)
+
+# A small preview, rather than printing the entire dataset
+vdem_data |> select(country_name, year, v2x_polyarchy) |> head()
+vparty_data |> select(country_name, year, v2paenname, v2paid) |> head()
+
+# Available years
+range(vdem_data$year, na.rm = TRUE)
+range(vparty_data$year, na.rm = TRUE)
+```
+
+For an interactive spreadsheet-style view, use `view()`.
+These commands are optional and excluded from rendering.
+
+```{r}
+#| eval: false
+view(codebook)
+view(vdem_data)
+view(vparty_data)
+```
+
+### Search the V-Dem codebook
+
+```{r}
+#| label: search-codebook
+# Search indicator names by keyword; replace the search term.
+democracy_variables <- vdemdata::find_var("democracy")
+democracy_variables |> select(tag, name) |> head(10)
+
+# Ask about a specific variable using its name in quotation marks.
+vdemdata::var_info("v2x_polyarchy")
+```
+
+`find_var()` returns a table of codebook entries, not just variable names.
+`var_info()` expects a variable name, not a dataset. These helpers are
+documented for the V-Dem codebook. For V-Party, consult its separate
+[codebook on the dataset page](https://www.v-dem.net/data/v-party-dataset/).
+
+You can search column names in either dataset. This finds names, not definitions:
+
+```{r}
+#| label: search-columns
+names(vdem_data)[str_detect(names(vdem_data), "^v2x_")] |> head(15)
+names(vparty_data)[str_detect(names(vparty_data), "vote|seat|corrupt")]
+```
+
+**Your notes:** Which variable interests you? What does it measure? What do
+high and low values mean? What aspect of your interest does it leave out?
+
+*Write here.*
+
+## 2A. V-Dem: Compare countries over time
+
+### Select countries, years and columns
+
+```{r}
+#| label: select-vdem
+# Change these settings to explore your own cases.
+chosen_countries <- c("Germany", "Hungary", "Poland")
+first_year <- 1990
+last_year <- 2024
+
+democracy_sample <- vdem_data |>
+  filter(country_name %in% chosen_countries,
+         year >= first_year, year <= last_year) |>
+  select(country_name, year, v2x_polyarchy, v2x_libdem)
+
+head(democracy_sample)
+
+# Check how many observations and missing values each country has.
+democracy_sample |>
+  group_by(country_name) |>
+  summarise(observations = n(),
+            missing_electoral = sum(is.na(v2x_polyarchy)))
+```
+
+`filter()` selects rows; `select()` selects columns. `%in%` matches any of the
+countries in your list. `|>` passes the result to the next step. `NA` means
+missing data, not zero.
+
+### Draw a line graph
+
+```{r}
+#| label: plot-vdem
+democracy_plot <- ggplot(democracy_sample,
+                        aes(x = year, y = v2x_polyarchy,
+                            colour = country_name)) +
+  geom_line(linewidth = 0.8) +
+  labs(title = "Electoral democracy over time",
+       x = "Year", y = "Electoral Democracy Index",
+       colour = "Country") +
+  theme_minimal()
+
+democracy_plot
+
+var_info("v2x_polyarchy")
+var_info("v2x_libdem")
+```
+
+**Try it:** Replace `v2x_polyarchy` in the plot with `v2x_libdem`, and adjust
+the title and axis label. Consult `var_info("v2x_libdem")` first. These indices
+capture different concepts; a difference between their values is not itself
+a measure of institutional change.
+
+**Your notes:** Describe one pattern. Does it match your expectations?
+Separate the observation from your possible explanation.
+
+*Write here.*
+
+## 2B. V-Party: Compare parties at one election date
+
+Party names are stored in `v2paenname` (English name), and party identifiers
+in `v2paid`. The example uses vote shares, `v2pavote`; consult the V-Party
+codebook for its definition, scale and treatment of electoral alliances.
+
+```{r}
+#| label: select-vparty
+chosen_country <- "Germany"
+
+# Inspect available dates before choosing one.
+vparty_data |>
+  filter(country_name == chosen_country) |>
+  distinct(year, historical_date) |>
+  arrange(desc(year), historical_date) |>
+  head(10)
+
+# Example: German parties observed in 2017.
+party_sample <- vparty_data |>
+  filter(country_name == chosen_country, year == 2017) |>
+  select(country_name, year, historical_date,
+         v2paid, v2paenname, v2pavote)
+
+party_sample
+```
+
+Check that your sample refers to one election date before making the chart.
+If your chosen year contains several dates, add a filter for `historical_date`.
+Missing parties or missing vote shares should not be interpreted as zero votes.
+
+```{r}
+#| label: plot-vparty
+party_sample |> summarise(missing_vote_shares = sum(is.na(v2pavote)))
+
+party_plot <- ggplot(party_sample |> filter(!is.na(v2pavote)),
+       aes(x = reorder(v2paenname, v2pavote), y = v2pavote)) +
+        geom_col(fill = "steelblue") +
+        coord_flip() +
+        labs(title = "Recorded party vote shares: Germany, 2017",
+            x = NULL, y = "Vote share (%)") +
+        theme_minimal() +
+        theme(
+            plot.title.position = "plot",
+            plot.title = element_text(hjust = 0.5)
+        )
+
+party_plot
+
+```
+
+**Try it:** Choose another country and an available election year. Update the
+chart title. Alternatively, find a party characteristic in the V-Party
+codebook, locate its column and explore it. Use party identifiers when
+tracking parties; names alone may not reliably identify them over time.
+
+**Your notes:** What does your comparison show? What would you need to know
+about the election or party coverage to interpret it?
+
+*Write here.*
+
+## 3. Develop a research question
+
+Based on your exploration, write down:
+
+1. One research question.
+2. The countries, parties and period you would investigate.
+3. One additional variable or data source you would need.
+4. Something your current graph cannot establish.
+
+A descriptive pattern can inspire an explanation, but does not establish
+causality. Where uncertainty intervals are provided, consider them before
+interpreting small differences.
+
+*Write here.*
+
+## Optional tools: Save your results
+
+Run manually if you want to save your V-Dem sample and plot in the folder
+containing this file. These commands are excluded from rendering.
+
+```{r}
+#| eval: false
+write_csv(democracy_sample, "my-vdem-sample.csv")
+
+ggsave("my-democracy-plot.png", plot = democracy_plot,
+       width = 8, height = 5, dpi = 300)
+
+ggsave("my-party-plot.png", plot = party_plot,
+       width = 8, height = 5, dpi = 300)
+```
+
+## Sources and reproducibility
+
+- [vdemdata package documentation](https://github.com/vdeminstitute/vdemdata)
+- [V-Dem data and codebook](https://www.v-dem.net/data/the-v-dem-dataset/)
+- [V-Party data and codebook](https://www.v-dem.net/data/v-party-dataset/)
+
+Record the package and dataset versions you use and cite the datasets in
+research. Values may be revised between releases: use one release throughout
+your comparison. HTML is the default output; select Typst when you want a PDF.
+
+```{r}
+#| label: session-information
+#| include: false
+sessionInfo()
+```
