@@ -21,7 +21,7 @@ then change the countries, years or indicators to follow your own interests.
 The aim is to understand a measure, discover a pattern and develop a research
 question. You do not need to work through every example.
 
-For our ~45-minute session, spend about 35 minutes exploring and keep the final
+For the second half of the data lab session, spend about 35 minutes exploring and keep the final
 10 minutes for discussion. Choose either the V-Dem or the V-Party example.
 
 In RStudio, run a code chunk using its green arrow. In Positron, use the >Run Cell
@@ -49,6 +49,7 @@ remotes::install_github("vdeminstitute/vdemdata")
 
 ```{r}
 #| label: setup
+#| eval: false
 if (!require(pacman)) install.packages("pacman")
 p_load(tidyverse, vdemdata)
 
