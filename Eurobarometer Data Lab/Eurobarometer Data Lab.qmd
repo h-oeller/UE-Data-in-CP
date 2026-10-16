@@ -1,0 +1,492 @@
+---
+title: "Eurobarometer Data Lab"
+subtitle: "Exploring countries, time, groups, and individuals in R"
+author: "[Your Names]"
+date: today
+format:
+  html:
+    toc: true
+    code-copy: true
+    embed-resources: true
+  typst: default
+execute:
+  warning: false
+  message: false
+---
+
+## Getting started
+
+This file is a toolbox for your own exploration of Eurobarometer survey data.
+Run an example, then change the countries, survey waves, groups or questions.
+The aim is to discover the different questions we can investigate with
+individual responses: Who thinks what? Do groups differ? Do country patterns
+change over time? Are two attitudes related within the same people?
+
+Work in pairs. Spend about **40 minutes exploring** and keep the final
+**10 minutes for discussion**. Inspect the data in section 1, then choose
+**two of the four examples in section 2**. You do not need to complete them all.
+Finish by developing a research question in section 3.
+
+In RStudio, use the green arrow to run a code chunk. In Positron, use
+**Run Cell**. **Render** in RStudio or **Preview** in Positron runs the whole
+document. Write your observations in the spaces below.
+
+## Preparation
+
+### Download the data
+
+We use the **Mannheim Eurobarometer Trend File 1970–2002 (ZA3521),
+version 2.0.1**. This historical dataset combines harmonized questions across
+waves, so we can explore countries, time and individuals with one download.
+It does not describe current public opinion.
+
+Each row here represents **one respondent in one survey wave**. Eurobarometer
+draws new samples across waves: a time comparison describes population patterns,
+not changes in the same people.
+
+1. Create a free GESIS account and sign in to the
+   [GESIS study page for ZA3521](https://search.gesis.org/research_data/ZA3521).
+2. Download the **SPSS data file** and unzip it if necessary.
+   Also open the [codebook](https://access.gesis.org/dbk/16275).
+3. Put the `.sav` file in a folder named `data` next to this `.qmd` file.
+   Rename your local copy to `ZA3521.sav`, or change `data_file` below.
+
+Use the study's download and citation information and follow its terms of use.
+For a smooth start, download the file and install the packages before class.
+
+### Install packages once & Working directory
+
+Run this chunk manually. It is excluded from rendering (`eval: false`).
+Installation requires an internet connection.
+
+Ideally, you store both your data and the .qmd R-Script in one folder.
+Only if you tell RStudio/Positron your working directory, can it find
+the required data.
+
+```{r}
+#| label: installation
+#| eval: false
+install.packages(c("tidyverse", "haven", "rio"))
+
+getwd() # get's your current working directory
+
+setwd("/your-directory/folder ") # to set to "your-directory"
+# for example, mine is:
+setwd("/Users/DATA/_GIT/UE-Data-in-CP/Eurobarometer Data Lab")
+
+```
+
+### Load packages and data
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(haven)
+
+data_file <- "data/ZA3521.sav"
+if (!file.exists(data_file)) {
+  stop("Download ZA3521 from GESIS and put the SPSS file at: ", data_file,
+       ". See Preparation above, or change data_file.")
+}
+
+eb_raw <- read_sav(data_file)
+# Use lower-case column names throughout this lab.
+names(eb_raw) <- tolower(names(eb_raw))
+```
+
+## 1. Inspect the data and find a question
+
+### Look at respondents and variable labels
+
+```{r}
+#| label: inspect-data
+dim(eb_raw)
+eb_raw |> select(eb, year, nation2, satislfe, membrshp, age, lrs) |> head()
+
+# SPSS stores descriptions alongside the short variable names.
+variable_guide <- tibble(
+  variable = names(eb_raw),
+  description = map_chr(eb_raw, function(x) {
+    label <- attr(x, "label", exact = TRUE)
+    if (is.null(label)) "" else as.character(label)
+  })
+)
+
+variable_guide |>
+  filter(str_detect(description,
+                    regex("satisf|trust|education|occupation|political",
+                          ignore_case = TRUE)))
+
+# Response scales, codes and their labels for two example questions
+attr(eb_raw$satislfe, "labels")
+attr(eb_raw$membrshp, "labels")
+attr(eb_raw$lrs, "labels")
+```
+
+For a spreadsheet-style view, run these commands manually:
+
+```{r}
+#| eval: false
+View(variable_guide)
+View(eb_raw)
+```
+
+Find a question that interests you in the codebook. Check its wording,
+response options, countries and waves. The descriptions stored in the data
+are a starting point; the codebook also documents changes and exceptions.
+
+The examples use `satislfe` (life satisfaction), `membrshp` (evaluation of
+EC/EU membership), `age`, and `lrs` (left–right self-placement).
+See codebook pages **167, 64, 296 and 249**, respectively.
+
+**Your notes:** What would you like to know about public opinion? Which
+question could help you investigate it? What does it leave out?
+
+*Write here.*
+
+### Prepare a small set of variables
+
+Survey files contain numerical codes that are not substantive answers.
+We keep valid responses and turn other codes into `NA` (missing).
+We retain respondents with missing answers so that we can check how many
+are excluded from each comparison.
+
+```{r}
+#| label: prepare-data
+eb_data <- eb_raw |>
+  transmute(
+    wave = as.integer(eb),
+    year = as.integer(year),
+    country_id = as.integer(nation2),
+    country = as_factor(nation2),
+    weight = as.numeric(wnation),
+    life_satisfaction = if_else(satislfe %in% 1:4,
+                               as.numeric(satislfe), NA_real_),
+    membership = if_else(membrshp %in% 1:3,
+                         as.numeric(membrshp), NA_real_),
+    age = if_else(between(as.numeric(age), 15, 99),
+                  as.numeric(age), NA_real_),
+    left_right = if_else(lrs %in% 1:10,
+                         as.numeric(lrs), NA_real_)
+  ) |>
+  mutate(
+    # 1 = satisfied; 0 = dissatisfied; missing stays missing.
+    satisfied = if_else(is.na(life_satisfaction), NA_real_,
+                        as.numeric(life_satisfaction <= 2)),
+    eu_positive = if_else(is.na(membership), NA_real_,
+                         as.numeric(membership == 1)),
+    age_group = cut(age, breaks = c(15, 30, 50, 65, Inf),
+                    labels = c("15–29", "30–49", "50–64", "65+"),
+                    right = FALSE)
+  )
+
+```
+
+`satisfied` combines the two satisfied categories; `eu_positive` identifies
+a favourable membership evaluation. The latter compares this answer with
+all other substantive answers, including the neutral category. Both exclude
+nonresponses. Collapsing categories makes a graph simple but loses detail.
+
+The examples use **national weights** (`wnation`) with `nation2`, which
+combines the German and UK subsamples (codebook pages 42 and 59). All
+percentages below are calculated separately within a country and wave.
+An EU-wide population estimate would require a different weighting choice.
+`n_valid` always counts actual respondents, not weighted population totals.
+
+### Choose your cases
+
+```{r}
+#| label: choose-cases
+# Discover available countries, waves and years.
+eb_data |> distinct(country_id, country) |> arrange(country_id)
+eb_data |> distinct(wave, year) |> arrange(desc(wave)) |> head(15)
+range(eb_data$year)
+
+# Country codes: France = 1, Germany = 4, Denmark = 7, UK = 9.
+# Look at the country table above to choose others.
+chosen_countries <- c(1, 4, 7)
+chosen_country <- 4
+chosen_wave <- 571  # EB 57.1, spring 2002; see codebook p. 27.
+first_year <- 1991
+last_year <- 2002
+
+one_wave <- eb_data |>
+  filter(wave == chosen_wave, country_id %in% chosen_countries)
+
+# Coverage before dropping missing answers
+one_wave |>
+  group_by(country) |>
+  summarise(n_respondents = n(),
+            missing_satisfaction = sum(is.na(satisfied)),
+            missing_membership = sum(is.na(eu_positive)),
+            missing_age = sum(is.na(age)),
+            missing_left_right = sum(is.na(left_right)),
+            unusable_weights = sum(is.na(weight) | weight <= 0),
+            .groups = "drop")
+```
+
+Change these settings, then rerun this chunk and your chosen examples.
+For examples B and C, include `chosen_country` in `chosen_countries`.
+`filter()` selects rows; `select()` selects columns; `|>` passes a result
+to the next step. `%in%` matches any value in a list.
+
+## 2A. Compare countries
+
+**Question:** Does life satisfaction differ between countries in the same wave?
+
+```{r}
+#| label: compare-countries
+country_results <- one_wave |>
+  filter(!is.na(satisfied), !is.na(weight), weight > 0) |>
+  group_by(country, year, wave) |>
+  summarise(n_valid = n(),
+            percent_satisfied = 100 * weighted.mean(satisfied, weight),
+            .groups = "drop")
+
+country_results
+
+country_plot <- ggplot(country_results,
+                       aes(x = country, y = percent_satisfied)) +
+  geom_col(fill = "steelblue") +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = paste("Life satisfaction — wave code", chosen_wave),
+       x = NULL, y = "Satisfied respondents (%)",
+       caption = "National weights; substantive answers only") +
+  theme_minimal()
+country_plot
+```
+
+**Try it:** Add another country. Or replace `satisfied` in the filter and
+weighted mean with `eu_positive` and update the column and graph labels.
+
+**Your notes:** Describe one difference. Who is included in the percentage?
+Could a country average conceal differences between people within it?
+
+*Write here.*
+
+## 2B. Compare groups within a country
+
+**Question:** Are younger and older respondents equally positive about EC/EU
+membership?
+
+```{r}
+#| label: compare-groups
+# get the age groups available in the age_group variable for your chosen country
+one_wave$age_group[one_wave$wave == chosen_wave & one_wave$country == chosen_country]
+
+group_results <- one_wave |>
+  filter(country_id == chosen_country,
+         !is.na(age_group), !is.na(eu_positive),
+         !is.na(weight), weight > 0) |>
+  group_by(country, age_group) |>
+  summarise(n_valid = n(),
+            percent_positive = 100 * weighted.mean(eu_positive, weight),
+            .groups = "drop")
+
+group_results
+
+group_plot <- ggplot(group_results,
+                     aes(x = age_group, y = percent_positive)) +
+  geom_col(fill = "steelblue") +
+  facet_wrap(~ country) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = paste("Membership evaluations — wave code", chosen_wave),
+       x = "Age group", y = "Favourable evaluation (%)",
+       caption = "National weights; valid age and membership answers") +
+  theme_minimal()
+group_plot
+```
+
+**Try it:** Remove `country_id == chosen_country` from the filter to compare
+the age pattern across all your selected countries. Or change the age-group
+boundaries in section 1 and rerun the preparation and this example.
+
+For another grouping, use the variable guide to find education, occupation
+or another demographic variable. Check its codes before adding it to
+`eb_data`. An age difference in one wave does not tell us whether people
+change their opinions as they get older.
+
+**Your notes:** Which groups differ? Check their sample sizes. Does changing
+the group boundaries change your impression?
+
+*Write here.*
+
+## 2C. Connect two answers from the same individual
+
+**Question:** Is political self-placement related to membership evaluations
+within a country?
+
+We connect two answers given by the **same respondents**. This is different
+from comparing country averages. A relationship between national averages
+does not necessarily hold between individuals.
+
+```{r}
+#| label: individual-relationships
+individual_results <- one_wave |>
+  filter(country_id == chosen_country,
+         !is.na(left_right), !is.na(eu_positive),
+         !is.na(weight), weight > 0) |>
+  group_by(country, left_right) |>
+  summarise(n_valid = n(), # returns the number of individuals per scale-step on left-right-selfplacement
+            percent_positive = 100 * weighted.mean(eu_positive, weight), # returns % favorable membership within each scale-step
+            .groups = "drop")
+
+individual_results
+
+individual_plot <- ggplot(individual_results,
+                          aes(x = left_right, y = percent_positive)) +
+  geom_point(size = 2.5, colour = "steelblue") +
+  facet_wrap(~ country) +
+  scale_x_continuous(breaks = 1:10) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = paste("Political views and membership — wave code", chosen_wave),
+       x = "Left–right self-placement (1 = left, 10 = right)",
+       y = "Favourable membership evaluation (%)",
+       caption = "National weights; valid answers to both questions") +
+  theme_minimal()
+individual_plot
+```
+
+Each dot summarises respondents at one scale position. It is not a single
+person. Consult `n_valid`: a dot based on few answers may be unstable.
+
+**Try it:** Replace `eu_positive` in the filter and weighted mean with
+`satisfied`; update the labels. Or remove the country filter to see whether
+the relationship looks similar in other countries.
+
+**Your notes:** Is there a pattern? Is it linear, curved or unclear? Suggest
+one other characteristic that could help explain the association. This
+comparison alone does not establish that either attitude causes the other.
+
+*Write here.*
+
+## 2D. Compare countries over time
+
+**Question:** Do countries follow similar paths in life satisfaction?
+
+First calculate each wave separately. For a simple calendar-year graph,
+then keep the last wave with valid satisfaction answers in each country and
+year. This avoids pooling several surveys into one estimate.
+
+```{r}
+#| label: compare-time
+time_results <- eb_data |>
+  filter(country_id %in% chosen_countries,
+         year >= first_year, year <= last_year) |>
+  group_by(country, wave, year) |>
+  summarise(
+    n_valid = sum(!is.na(satisfied) & !is.na(weight) & weight > 0),
+    percent_satisfied = if (n_valid > 0) {
+      valid <- !is.na(satisfied) & !is.na(weight) & weight > 0
+      100 * weighted.mean(satisfied[valid], weight[valid])
+    } else NA_real_,
+    .groups = "drop"
+  )
+
+# Coverage and nonresponse vary across waves.
+time_results |> arrange(country, wave) |> head(20)
+
+annual_results <- time_results |>
+  filter(n_valid > 0) |>
+  group_by(country, year) |>
+  slice_max(wave, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+# Check which wave represents each country-year.
+annual_results |> select(country, year, wave, n_valid)
+
+time_plot <- ggplot(annual_results,
+                    aes(x = year, y = percent_satisfied,
+                        colour = country, group = country)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.3) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(title = paste("Life satisfaction", first_year, "to", last_year),
+       x = "Year (last available wave with valid answers)",
+       y = "Satisfied respondents (%)", colour = "Country",
+       caption = "National weights; substantive answers only") +
+  theme_minimal()
+time_plot
+```
+
+Use the wave column and the fieldwork table on codebook page 27 to check
+when within each year the selected survey took place. Compare the same wave
+across countries when possible. Years without valid answers are absent;
+missing data do not imply zero satisfaction. Lines guide the eye and do not
+establish what happened between observations.
+
+**Try it:** Change the period or countries. Alternatively, use `eu_positive`
+instead of `satisfied` throughout this chunk and update the labels. Check
+whether the two questions were asked in the same waves.
+
+**Your notes:** Identify one change or stable pattern. What could explain
+it? What additional evidence would help? Samples and question coverage can
+change. Germany before reunification covers a different territory; the
+default period starts in 1991 to avoid that break.
+
+*Write here.*
+
+## 3. Develop a research question
+
+Bring your two explorations together. Write down:
+
+1. One observation and one research question it suggests.
+2. Whether your question concerns countries, change over time, groups or
+   relationships between individuals' characteristics and attitudes.
+3. The countries, waves, population and variables you would investigate.
+4. One comparison, additional variable or data source you would need next.
+5. Something your current graphs cannot establish.
+
+For discussion, prepare **one graph and two sentences**: what it shows and
+what you would investigate next. A surprising result or a difficulty with
+measurement is also useful.
+
+*Write here.*
+
+The graphs are descriptive estimates. We have not calculated sampling
+uncertainty or accounted for the full sampling design in standard errors.
+Treat small differences cautiously, especially in small groups. Weighting
+does not remove all sources of survey error.
+
+## Optional tools: Keep more detail and save your work
+
+The examples reduce satisfaction to two categories. Inspect the original
+four categories to see what that simplification hides. These are **unweighted
+counts**, useful for checking the data rather than estimating population shares.
+
+```{r}
+#| label: inspect-full-distribution
+one_wave |>
+  count(country, life_satisfaction, .drop = FALSE)
+```
+
+Run these commands manually to save one result table and graph:
+
+```{r}
+#| eval: false
+# After running example A; use group_results/group_plot, etc. for other examples.
+write_csv(country_results, "data/my-eurobarometer-countries.csv")
+ggsave("output/my-eurobarometer-countries.png", plot = country_plot,
+       width = 8, height = 5, dpi = 300)
+```
+
+## Sources and reproducibility
+
+- [GESIS study and download: Mannheim Eurobarometer Trend File (ZA3521)](https://search.gesis.org/research_data/ZA3521)
+- [Dataset DOI: version 2.0.1](https://doi.org/10.4232/1.10074)
+- [Codebook: variable definitions, coverage and fieldwork dates](https://access.gesis.org/dbk/16275)
+- [GESIS Eurobarometer FAQ: access, repeated cross-sections and documentation](https://www.gesis.org/en/eurobarometer-data-service/faq)
+- [Other Eurobarometer trend files](https://www.gesis.org/en/eurobarometer-data-service/survey-series/eb-trends-trend-files)
+
+Copy the full dataset citation from GESIS into your work. Record your file
+version, selected countries and waves, recoding decisions and weight. For a
+recent survey or another trend file, check its own question wording, variable
+names, response codes and weights before adapting this script.
+
+HTML is the default output. Select Typst for PDF output.
+
+```{r}
+#| label: session-information
+#| include: false
+sessionInfo()
+```

@@ -49,7 +49,6 @@ remotes::install_github("vdeminstitute/vdemdata")
 
 ```{r}
 #| label: setup
-#| eval: false
 if (!require(pacman)) install.packages("pacman")
 p_load(tidyverse, vdemdata)
 
@@ -265,12 +264,12 @@ containing this file. These commands are excluded from rendering.
 
 ```{r}
 #| eval: false
-write_csv(democracy_sample, "my-vdem-sample.csv")
+write_csv(democracy_sample, "data/my-vdem-sample.csv")
 
-ggsave("my-democracy-plot.png", plot = democracy_plot,
+ggsave("output/my-democracy-plot.png", plot = democracy_plot,
        width = 8, height = 5, dpi = 300)
 
-ggsave("my-party-plot.png", plot = party_plot,
+ggsave("output/my-party-plot.png", plot = party_plot,
        width = 8, height = 5, dpi = 300)
 ```
 
