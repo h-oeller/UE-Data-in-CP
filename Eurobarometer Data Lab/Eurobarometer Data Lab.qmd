@@ -70,7 +70,7 @@ install.packages(c("tidyverse", "haven", "rio"))
 
 getwd() # get's your current working directory
 
-setwd("/your-directory/folder ") # to set to "your-directory"
+setwd("/your-directory/folder") # to set to "your-directory"
 # for example, mine is:
 setwd("/Users/DATA/_GIT/UE-Data-in-CP/Eurobarometer Data Lab")
 
@@ -131,9 +131,10 @@ View(variable_guide)
 View(eb_raw)
 ```
 
-Find a question that interests you in the codebook. Check its wording,
-response options, countries and waves. The descriptions stored in the data
-are a starting point; the codebook also documents changes and exceptions.
+Find a question that interests you in the codebook: `ZA3521_cod_v2-0-1.pdf`
+Check its wording, response options, countries and waves. The descriptions 
+stored in the data are a starting point; the codebook also documents changes 
+and exceptions.
 
 The examples use `satislfe` (life satisfaction), `membrshp` (evaluation of
 EC/EU membership), `age`, and `lrs` (left–right self-placement).
