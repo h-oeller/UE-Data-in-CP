@@ -22,14 +22,14 @@ star
 # 2. Mittelwerte vergleichen ----------------------------------------------
 
 # Beobachtete Ergebnisse nach Gruppe
-klein   <- star$Lernerfolg[star$Kleinklasse == 1]
-regulaer <- star$Lernerfolg[star$Kleinklasse == 0]
+klein <- star$Y1
+regulaer <- star$Y0
 
-mean(klein)                       # 617.67
-mean(regulaer)                    # 601.67
+mean(klein, na.rm = TRUE)         # 617.67
+mean(regulaer, na.rm = TRUE)      # 601.67
 
 # Difference-in-Means: Kleinklasse minus reguläre Klasse
-differenz <- mean(klein) - mean(regulaer)
+differenz <- mean(klein, na.rm = TRUE) - mean(regulaer, na.rm = TRUE)  
 differenz                         # 16 Punkte
 
 # Übersicht nach Gruppe
@@ -112,3 +112,229 @@ rbind(
     p = coef(summary(modell))["Kleinklasse", "Pr(>|t|)"]
   )
 )
+
+# 7. Konfidenzintervalle und Ergebnistabellen -------------------------------
+
+library(ggplot2)
+
+# A. Gruppenmittelwerte und ihre modellbasierten 95%-Konfidenzintervalle
+# interval = "confidence": Unsicherheit des geschätzten Mittelwerts,
+# nicht die Streuung einzelner Schülerinnen und Schüler.
+
+vorhersagen <- data.frame(Kleinklasse = c(0, 1))
+
+ki_mittelwerte <- predict(
+  modell,
+  newdata = vorhersagen,
+  interval = "confidence",
+  level = 0.95
+)
+
+ki_mittelwerte
+
+vorhersagen$Mittelwert <- ki_mittelwerte[, "fit"]
+vorhersagen$KI_unten   <- ki_mittelwerte[, "lwr"]
+vorhersagen$KI_oben    <- ki_mittelwerte[, "upr"]
+
+tabelle_gruppen <- data.frame(
+  Gruppe = c("Reguläre Klasse", "Kleinklasse"),
+  n = c(sum(!is.na(regulaer)), sum(!is.na(klein))),
+  Mittelwert = vorhersagen$Mittelwert,
+  KI_unten = vorhersagen$KI_unten,
+  KI_oben = vorhersagen$KI_oben
+)
+
+tabelle_gruppen
+
+# B. Geschätzte Differenz und ihre Unsicherheit
+# Alle Verfahren betrachten Kleinklasse minus reguläre Klasse.
+
+ols <- coef(summary(modell))["Kleinklasse", ]
+ols_ki <- confint(modell, "Kleinklasse", level = 0.95)
+
+ols
+ols_ki
+
+tabelle_effekte <- data.frame(
+  Methode = c("Welch-t-Test", "Student-t-Test", "OLS"),
+  Differenz = c(
+    differenz,
+    differenz,
+    unname(coef(modell)["Kleinklasse"])
+  ),
+  SE = c(
+    unname(test_welch$stderr),
+    unname(test_student$stderr),
+    unname(ols["Std. Error"])
+  ),
+  df = c(
+    unname(test_welch$parameter),
+    unname(test_student$parameter),
+    df.residual(modell)
+  ),
+  t = c(
+    unname(test_welch$statistic),
+    unname(test_student$statistic),
+    unname(ols["t value"])
+  ),
+  p = c(
+    test_welch$p.value,
+    test_student$p.value,
+    unname(ols["Pr(>|t|)"])
+  ),
+  KI_unten = c(
+    test_welch$conf.int[1],
+    test_student$conf.int[1],
+    ols_ki[1, 1]
+  ),
+  KI_oben = c(
+    test_welch$conf.int[2],
+    test_student$conf.int[2],
+    ols_ki[1, 2]
+  )
+)
+
+tabelle_effekte$Null_im_KI <- with(
+  tabelle_effekte,
+  KI_unten <= 0 & KI_oben >= 0
+)
+
+# Tabellen für die Ausgabe runden.
+# Die ursprünglichen Werte bleiben für die Plots erhalten.
+
+runde_tabelle <- function(daten, stellen = 2) {
+  numerisch <- vapply(daten, is.numeric, logical(1))
+  daten[numerisch] <- lapply(daten[numerisch], round, digits = stellen)
+  daten
+}
+
+runde_tabelle(tabelle_gruppen)
+runde_tabelle(tabelle_effekte, stellen = 3)
+
+
+# 8. Regressionsplot mit 95%-Konfidenzintervallen ---------------------------
+
+plot_regression <- ggplot() +
+  geom_point(
+    data = star,
+    aes(x = Kleinklasse, y = Lernerfolg),
+    size = 3,
+    color = "grey40"
+  ) +
+  geom_errorbar(
+    data = vorhersagen,
+    aes(x = Kleinklasse, ymin = KI_unten, ymax = KI_oben),
+    width = 0.08,
+    linewidth = 0.8,
+    color = "#ED702D"
+  ) +
+  geom_line(
+    data = vorhersagen,
+    aes(x = Kleinklasse, y = Mittelwert),
+    linewidth = 1,
+    color = "#ED702D"
+  ) +
+  geom_point(
+    data = vorhersagen,
+    aes(x = Kleinklasse, y = Mittelwert),
+    shape = 18,
+    size = 5,
+    color = "#ED702D"
+  ) +
+  geom_text(
+    data = vorhersagen,
+    aes(
+      x = Kleinklasse,
+      y = Mittelwert,
+      label = sprintf("%.2f", Mittelwert)
+    ),
+    nudge_x = 0.06,
+    hjust = 0,
+    vjust = -0.6,
+    color = "#ED702D",
+    size = 4.5
+  ) +
+  scale_x_continuous(
+    breaks = c(0, 1),
+    labels = c("Reguläre Klasse (0)", "Kleinklasse (1)"),
+    expand = expansion(mult = 0.25)
+  ) +
+  labs(
+    title = "Mittelwertvergleich als Regression",
+    subtitle = sprintf(
+      "Geschätzter Lernerfolg = %.2f + %.2f × Kleinklasse",
+      coef(modell)[1], coef(modell)[2]
+    ),
+    x = "Klassentyp",
+    y = "Lernerfolg (Punkte)",
+    caption = paste(
+      "Grau: beobachtete Werte. Blau: Gruppenmittelwerte mit 95%-KI.",
+      "Intervalle aus OLS mit gemeinsamer Varianzannahme.",
+      sep = "\n"
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
+
+plot_regression
+
+
+# 9. Konfidenzintervalle der Mittelwertdifferenz ----------------------------
+
+# Reihenfolge von oben nach unten im Plot
+tabelle_effekte$Methode <- factor(
+  tabelle_effekte$Methode,
+  levels = c("OLS", "Student-t-Test", "Welch-t-Test")
+)
+
+plot_differenz <- ggplot(
+  tabelle_effekte,
+  aes(y = Methode)
+) +
+  # Nullhypothese: kein Mittelwertunterschied
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    color = "grey50"
+  ) +
+  # Horizontale Konfidenzintervalle
+  geom_segment(
+    aes(
+      x = KI_unten,
+      xend = KI_oben,
+      yend = Methode
+    ),
+    linewidth = 1,
+    color = "#ED702D"
+  ) +
+  geom_point(
+    aes(x = Differenz),
+    size = 3.5,
+    color = "#ED702D"
+  ) +
+  scale_x_continuous(
+    expand = expansion(mult = 0.1)
+  ) +
+  labs(
+    title = "Mittelwertdifferenz und statistische Unsicherheit",
+    subtitle = "Kleinklasse minus reguläre Klasse: 16 Punkte",
+    x = "Geschätzte Mittelwertdifferenz mit 95%-Konfidenzintervall",
+    y = NULL,
+    caption = paste(
+      "Die gestrichelte Linie markiert eine Differenz von null.",
+      "Student-t-Test und gewöhnliche OLS liefern dasselbe Intervall.",
+      sep = "\n"
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
+
+plot_differenz
