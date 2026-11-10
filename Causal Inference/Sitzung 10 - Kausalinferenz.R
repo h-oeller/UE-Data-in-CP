@@ -53,8 +53,8 @@ test_welch <- t.test(
 
 test_welch
 
-test_welch$statistic              # t-Wert
-test_welch$parameter              # Freiheitsgrade
+test_welch$statistic              # t-Wert = 0.621 Standard Errors
+test_welch$parameter              # Degrees of Freedom
 test_welch$p.value                # p-Wert
 test_welch$conf.int               # 95%-KI der Mittelwertdifferenz
 
@@ -153,7 +153,7 @@ ols <- coef(summary(modell))["Kleinklasse", ]
 ols_ki <- confint(modell, "Kleinklasse", level = 0.95)
 
 ols
-ols_ki
+ols_ki # Konfidenzintervall für die ermittelte Mittelwertdifferenz von 16
 
 tabelle_effekte <- data.frame(
   Methode = c("Welch-t-Test", "Student-t-Test", "OLS"),
